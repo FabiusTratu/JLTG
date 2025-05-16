@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jetlag - The Game</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #d6d6d6;
+      color: #333;
+    }
+
+    .container {
+      max-width: 400px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    h1 {
+      text-align: center;
+    }
+
+    button {
+      width: 100%;
+      padding: 15px;
+      margin: 10px 0;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background-color: #aaa;
+      cursor: not-allowed;
+    }
+
+    .challenge-box {
+      background-color: #e0f7fa;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+
+    .account {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 16px;
+    }
+
+    .small-button {
+      background-color: #dc3545;
+    }
+
+    #timer {
+      font-weight: bold;
+      text-align: center;
+      margin-top: 10px;
+      color: #ff0000;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Jetlag - The Game</h1>
+
+    <button id="drawChallenge">🎲 Neue Challenge würfeln</button>
+
+    <div id="challengeContainer" class="challenge-box" style="display:none;">
+      <p id="challengeText"></p>
+      <button id="successBtn">✅ Geschafft</button>
+      <button id="failBtn" class="small-button">❌ Nicht geschafft</button>
+    </div>
+
+    <div class="account">
+      Kontostand: <span id="accountBalance">0</span> Punkte
+    </div>
+
+    <div style="margin-top: 10px;">
+      <label for="withdrawAmount">Betrag abziehen:</label>
+      <input type="number" id="withdrawAmount" min="0" />
+      <button onclick="withdraw()">Abziehen</button>
+    </div>
+
+    <div id="timer" style="display:none;"></div>
+  </div>
+
+<script>
+  const challenges = [
+    { text: "Finde und fotografiere ein rotes Auto", reward: 10 },
+    { text: "Springe 10-mal auf einem Bein", reward: 5 },
+    { text: "Tausche einen Gegenstand mit jemandem", reward: 15 },
+    { text: "Finde einen Vogel und beschreibe ihn", reward: 10 },
+    { text: "Erzähle jemandem einen Witz", reward: 8 }
+  ];
+
+  let accountBalance = parseInt(localStorage.getItem("accountBalance")) || 0;
+  let currentChallenge = null;
+  const cooldownKey = "challengeCooldownUntil";
+
+  const drawBtn = document.getElementById('drawChallenge');
+  const challengeContainer = document.getElementById('challengeContainer');
+  const challengeText = document.getElementById('challengeText');
+  const successBtn = document.getElementById('successBtn');
+  const failBtn = document.getElementById('failBtn');
+  const accountDisplay = document.getElementById('accountBalance');
+  const timerDisplay = document.getElementById('timer');
+
+  function updateBalance() {
+    localStorage.setItem("accountBalance", accountBalance);
+    accountDisplay.textContent = accountBalance;
+  }
+
+  function startCooldown(minutes) {
+    const until = Date.now() + minutes * 60 * 1000;
+    localStorage.setItem(cooldownKey, until.toString());
+    updateCooldownState();
+  }
+
+  function updateCooldownState() {
+    const until = parseInt(localStorage.getItem(cooldownKey)) || 0;
+    const now = Date.now();
+
+    if (until > now) {
+      drawBtn.disabled = true;
+      updateTimer(until);
+    } else {
+      localStorage.removeItem(cooldownKey);
+      drawBtn.disabled = false;
+      timerDisplay.textContent = "Bereit für neue Challenge ✅";
+    }
+  }
+
+  function updateTimer(until) {
+    const interval = setInterval(() => {
+      const remaining = until - Date.now();
+      if (remaining <= 0) {
+        clearInterval(interval);
+        updateCooldownState();
+      } else {
+        const minutes = Math.floor(remaining / 60000);
+        const seconds = Math.floor((remaining % 60000) / 1000);
+        timerDisplay.textContent = `Sperre: ${minutes}m ${seconds}s`;
+      }
+    }, 1000);
+  }
+
+  drawBtn.addEventListener('click', () => {
+    currentChallenge = challenges[Math.floor(Math.random() * challenges.length)];
+    challengeText.textContent = currentChallenge.text + ` (💰${currentChallenge.reward} Punkte)`;
+    challengeContainer.style.display = 'block';
+    drawBtn.disabled = true;
+  });
+
+  successBtn.addEventListener('click', () => {
+    if (currentChallenge) {
+      accountBalance += currentChallenge.reward;
+      updateBalance();
+      resetChallenge();
+    }
+  });
+
+  failBtn.addEventListener('click', () => {
+    startCooldown(15); // 15 Minuten Sperre
+    resetChallenge();
+  });
+
+  function resetChallenge() {
+    currentChallenge = null;
+    challengeText.textContent = "";
+    challengeContainer.style.display = 'none';
+  }
+
+  function withdraw() {
+    const amount = parseInt(document.getElementById('withdrawAmount').value);
+    if (!isNaN(amount) && amount > 0 && amount <= accountBalance) {
+      accountBalance -= amount;
+      updateBalance();
+    } else {
+      alert("Ungültiger Betrag.");
+    }
+    document.getElementById('withdrawAmount').value = '';
+  }
+
+  // Beim Laden prüfen ob Sperre aktiv ist
+  window.onload = () => {
+    updateBalance();
+    timerDisplay.style.display = 'block'; // Immer sichtbar
+    updateCooldownState();
+  };
+</script>
+</body>
+</html>
