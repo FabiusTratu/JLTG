@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jetlag The Game</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #e0e0e0;
+      padding: 1rem;
+      max-width: 480px;
+      margin: auto;
+    }
+    button, input {
+      font-size: 1rem;
+      margin: 0.5rem 0;
+      padding: 0.5rem;
+      width: 100%;
+    }
+    #challengeContainer {
+      background: white;
+      padding: 1rem;
+      border-radius: 10px;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Jetlag The Game</h2>
+
+  <div id="authSection">
+    <input type="email" id="email" placeholder="E-Mail">
+    <input type="password" id="password" placeholder="Passwort">
+    <button onclick="signUp()">Registrieren</button>
+    <button onclick="signIn()">Anmelden</button>
+  </div>
+
+  <div id="gameSection" style="display:none;">
+    <p><strong>Kontostand:</strong> <span id="accountBalance">0</span> Punkte</p>
+    <p><strong>Status:</strong> <span id="timer">...</span></p>
+
+    <button id="drawChallenge">Neue Challenge ziehen</button>
+
+    <div id="challengeContainer" style="display:none;">
+      <p id="challengeText"></p>
+      <button id="successBtn">Challenge geschafft</button>
+      <button id="failBtn">Challenge nicht geschafft</button>
+    </div>
+
+    <div style="margin-top: 1rem">
+      <input type="number" id="withdrawAmount" placeholder="Betrag zum Abziehen">
+      <button onclick="withdraw()">Betrag abziehen</button>
+    </div>
+  </div>
+
+  <script>
+    const supabaseUrl = 'https://myjogkgmzeabemqvefye.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15am9na2dtemVhYmVtcXZlZnllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc0MTA1MDgsImV4cCI6MjA2Mjk4NjUwOH0.CrKLdEoVBktJNO0Mk2rdp9qNmOXyBIJ8tQEIHzprY7k';
+    const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+    let accountBalance = 0;
+    let currentChallenge = null;
+    let cooldownUntil = null;
+
+    const drawBtn = document.getElementById('drawChallenge');
+    const challengeContainer = document.getElementById('challengeContainer');
+    const challengeText = document.getElementById('challengeText');
+    const successBtn = document.getElementById('successBtn');
+    const failBtn = document.getElementById('failBtn');
+    const accountDisplay = document.getElementById('accountBalance');
+    const timerDisplay = document.getElementById('timer');
+
+    async function signUp() {
+      const { error } = await supabase.auth.signUp({
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value
+      });
+      if (error) return alert(error.message);
+      alert('Registrierung erfolgreich! Bitte einloggen.');
+    }
+
+    async function signIn() {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value
+      });
+      if (error) return alert(error.message);
+      onLogin();
+    }
+
+    async function onLogin() {
+      document.getElementById('authSection').style.display = 'none';
+      document.getElementById('gameSection').style.display = 'block';
+      const user = (await supabase.auth.getUser()).data.user;
+      const { data, error } = await supabase
+        .from('user_stats')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!data) {
+        await supabase.from('user_stats').insert({ user_id: user.id });
+        accountBalance = 0;
+      } else {
+        accountBalance = data.balance;
+        cooldownUntil = data.cooldown_until ? new Date(data.cooldown_until) : null;
+      }
+
+      updateBalance();
+      updateCooldownState();
+    }
+
+    function updateBalance() {
+      accountDisplay.textContent = accountBalance;
+    }
+
+    function updateCooldownState() {
+      if (cooldownUntil && cooldownUntil > new Date()) {
+        drawBtn.disabled = true;
+        startLocalTimer(cooldownUntil.getTime());
+      } else {
+        drawBtn.disabled = false;
+        timerDisplay.textContent = 'Bereit für neue Challenge ✅';
+      }
+    }
+
+    function startLocalTimer(until) {
+      const interval = setInterval(() => {
+        const now = Date.now();
+        const remaining = until - now;
+        if (remaining <= 0) {
+          clearInterval(interval);
+          timerDisplay.textContent = 'Bereit für neue Challenge ✅';
+          drawBtn.disabled = false;
+        } else {
+          const min = Math.floor(remaining / 60000);
+          const sec = Math.floor((remaining % 60000) / 1000);
+          timerDisplay.textContent = `Sperre: ${min}m ${sec}s`;
+        }
+      }, 1000);
+    }
+
+    drawBtn.addEventListener('click', async () => {
+      const { data, error } = await supabase
+        .from('challenges')
+        .select('*');
+      if (error || !data || data.length === 0) return alert('Keine Challenges verfügbar.');
+
+      currentChallenge = data[Math.floor(Math.random() * data.length)];
+      challengeText.textContent = `${currentChallenge.text} (💰${currentChallenge.reward} Punkte)`;
+      challengeContainer.style.display = 'block';
+      drawBtn.disabled = true;
+    });
+
+    successBtn.addEventListener('click', async () => {
+      if (!currentChallenge) return;
+      accountBalance += currentChallenge.reward;
+      const user = (await supabase.auth.getUser()).data.user;
+      await supabase
+        .from('user_stats')
+        .update({ balance: accountBalance })
+        .eq('user_id', user.id);
+      updateBalance();
+      resetChallenge();
+    });
+
+    failBtn.addEventListener('click', async () => {
+      const user = (await supabase.auth.getUser()).data.user;
+      cooldownUntil = new Date(Date.now() + 15 * 60 * 1000);
+      await supabase
+        .from('user_stats')
+        .update({ cooldown_until: cooldownUntil.toISOString() })
+        .eq('user_id', user.id);
+      startLocalTimer(cooldownUntil.getTime());
+      resetChallenge();
+    });
+
+    function resetChallenge() {
+      currentChallenge = null;
+      challengeText.textContent = '';
+      challengeContainer.style.display = 'none';
+    }
+
+    async function withdraw() {
+      const amt = parseInt(document.getElementById('withdrawAmount').value);
+      if (!isNaN(amt) && amt > 0 && amt <= accountBalance) {
+        accountBalance -= amt;
+        const user = (await supabase.auth.getUser()).data.user;
+        await supabase.from('user_stats')
+          .update({ balance: accountBalance })
+          .eq('user_id', user.id);
+        updateBalance();
+      } else {
+        alert("Ungültiger Betrag.");
+      }
+      document.getElementById('withdrawAmount').value = '';
+    }
+  </script>
+
+</body>
+</html>
